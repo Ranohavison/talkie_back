@@ -1,0 +1,48 @@
+# Render Blueprint (Infrastructure as Code)
+# Documentation : https://render.com/docs/blueprint-spec
+
+services:
+  # ==========================================
+  # 1. SERVEUR BACKEND (WebSockets + API)
+  # ==========================================
+  - type: web
+    name: walkie-talkie-api
+    env: docker            # Utilise notre Dockerfile automatiquement
+    region: frankfurt      # Emplacement européen pour réduire la latence audio
+    plan: starter          # "starter" est recommandé pour ne pas avoir de mise en veille (sleep) au bout de 15min
+    healthCheckPath: /api/health # Utilisé pour vérifier que le serveur est bien vivant
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000       # Port interne Render par défaut
+      # Lien automatique avec l'URL de PostgreSQL générée par Render
+      - key: DATABASE_URL
+        fromDatabase:
+          name: walkie-talkie-db
+          property: connectionString
+      # Lien automatique avec l'URL de Redis générée par Render
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: walkie-talkie-cache
+          property: connectionString
+
+  # ==========================================
+  # 2. CACHE & PUBSUB REDIS
+  # ==========================================
+  - type: redis
+    name: walkie-talkie-cache
+    region: frankfurt
+    plan: free             # Render propose une instance Redis gratuite (parfaite pour démarrer)
+    ipAllowList: []        # Sécurité : N'autorise que les connexions internes (depuis notre API)
+
+databases:
+  # ==========================================
+  # 3. BASE DE DONNÉES POSTGRESQL
+  # ==========================================
+  - name: walkie-talkie-db
+    region: frankfurt
+    plan: free             # Render propose une BDD gratuite de 90 jours (ou 'starter' pour la prod)
+    databaseName: walkietalkie
+    user: walkie_admin

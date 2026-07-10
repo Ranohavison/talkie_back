@@ -1,0 +1,71 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserStatus {
+  ONLINE
+  OFFLINE
+  BUSY
+}
+
+enum ChannelRole {
+  ADMIN
+  MEMBER
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  username     String     @unique
+  email        String     @unique
+  passwordHash String
+  status       UserStatus @default(OFFLINE)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  createdChannels Channel[]         @relation("ChannelCreator")
+  channels        ChannelMember[]
+  transmissions   TransmissionLog[]
+}
+
+model Channel {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  code        String   @unique
+  isPrivate   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  
+  createdById String   @db.Uuid
+  createdBy   User     @relation("ChannelCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  members       ChannelMember[]
+  transmissions TransmissionLog[]
+}
+
+model ChannelMember {
+  channelId String      @db.Uuid
+  userId    String      @db.Uuid
+  role      ChannelRole @default(MEMBER)
+  joinedAt  DateTime    @default(now())
+
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Clé primaire composite
+  @@id([channelId, userId])
+}
+
+model TransmissionLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  channelId       String   @db.Uuid
+  senderId        String   @db.Uuid
+  startedAt       DateTime @default(now())
+  durationSeconds Int
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sender  User    @relation(fields: [senderId], references: [id], onDelete: Cascade)
+}

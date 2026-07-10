@@ -1,0 +1,34 @@
+# Dépendances Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Fichiers compilés (TypeScript)
+dist/
+build/
+
+# Variables d'environnement et secrets
+.env
+.env.*
+!.env.example
+
+# Fichiers de cache / logs
+*.log
+.npm/
+
+# Fichiers spécifiques au système d'exploitation
+.DS_Store
+Thumbs.db
+
+# Fichiers de configuration des éditeurs/IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Dossiers générés (Coverage, etc.)
+coverage/
+.nyc_output/
