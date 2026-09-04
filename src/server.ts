@@ -2,13 +2,13 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from './lib/prisma';
 import { registerWalkieTalkieHandlers } from './sockets/walkieTalkieHandler';
 
 // 1. Initialisation de l'application et des serveurs
 const app = express();
 const httpServer = createServer(app);
-export const prisma = new PrismaClient(); // Exporté pour être réutilisé dans les contrôleurs REST
+export { prisma }; // Exporté pour être réutilisé dans les contrôleurs REST
 
 // 2. Configuration Socket.io avec CORS
 const io = new Server(httpServer, {

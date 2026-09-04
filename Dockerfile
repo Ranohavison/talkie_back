@@ -1,19 +1,26 @@
 # ==========================================
 # ÉTAPE 1 : BUILD (Compilation)
 # ==========================================
-FROM node:20-alpine AS builder
+# On utilise la version 20 pour s'aligner parfaitement avec le runner
+FROM node:20-slim AS builder
 
 WORKDIR /app
+
+# Installation d'OpenSSL et des certificats requis par Prisma
+RUN apt-get update -y && apt-get install -y openssl ca-certificates
 
 # 1. Copie des fichiers de configuration et du schéma Prisma
 COPY package*.json ./
 COPY tsconfig.json ./
 COPY prisma ./prisma/
 
-# 2. Installation de TOUTES les dépendances (nécessaires pour build)
-RUN npm ci
+# Ajustement pour forcer npm et Node à ignorer l'IPv6 défaillant pendant le build
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
 
-# 3. Génération du client Prisma (Binaires pour l'environnement de build)
+# 2. Installation des dépendances (npm install pour éviter le blocage si package-lock manque)
+RUN npm install
+
+# 3. Génération du client Prisma
 RUN npx prisma generate
 
 # 4. Copie du reste du code source et compilation
@@ -23,9 +30,12 @@ RUN npm run build
 # ==========================================
 # ÉTAPE 2 : RUNNER (Production)
 # ==========================================
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 
 WORKDIR /app
+
+# Installation d'OpenSSL également requis pour l'exécution en prod
+RUN apt-get update -y && apt-get install -y openssl ca-certificates
 
 # Passage en mode production
 ENV NODE_ENV=production
@@ -34,13 +44,10 @@ ENV NODE_ENV=production
 COPY package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.* ./
 
-# 2. Copie du client Prisma DÉJÀ généré (évite de réinstaller Prisma en prod)
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
-
-# 3. Installation des dépendances de production uniquement
-RUN npm ci --omit=dev
+# 2. Copie de toutes les dépendances installées en build
+COPY --from=builder /app/node_modules ./node_modules
 
 # 4. Alignement avec le port configuré sur Render (10000)
 EXPOSE 10000

@@ -1,6 +1,5 @@
-import { PrismaClient, UserStatus, ChannelRole } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { UserStatus, ChannelRole } from '@prisma/client';
+import { prisma } from '../src/lib/prisma';
 
 async function main() {
   console.log('🌱 Début de l\'initialisation de la base de données...');

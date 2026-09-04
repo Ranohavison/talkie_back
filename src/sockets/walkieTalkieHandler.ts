@@ -9,6 +9,10 @@ const CHANNEL_LOCK_PREFIX = 'channel:lock:';
 export function registerWalkieTalkieHandlers(io: Server, socket: Socket) {
   const userId = socket.handshake.auth.userId as string;
 
+  // Récupérer le pseudo envoyé à la connexion
+  const initialUsername = socket.handshake.auth.username || `Operator_${Math.floor(1000 + Math.random() * 9000)}`;
+  socket.data.username = initialUsername;
+
   // ==========================================
   // 1. REJOINDRE UNE FRÉQUENCE / UN CANAL
   // ==========================================
@@ -21,18 +25,43 @@ export function registerWalkieTalkieHandlers(io: Server, socket: Socket) {
       const sessionKey = `${SESSION_PREFIX}${userId}`;
       await redisClient.hset(sessionKey, {
         userId,
+        username: socket.data.username,
         socketId: socket.id,
         activeChannelId: channelId,
-        isTalking: 'false', // Les booléens sont stockés en String dans les hashs redis (sans parser JSON)
+        isTalking: 'false',
         lastSeenAt: Date.now().toString()
       });
 
-      console.log(`📡 User ${userId} a rejoint le canal ${channelId}`);
+      console.log(`📡 User ${userId} (${socket.data.username}) a rejoint le canal ${channelId}`);
       
-      // Notifier le salon de cette nouvelle présence
+      // Récupérer la liste des utilisateurs déjà présents dans ce canal
+      const sockets = await io.in(channelId).fetchSockets();
+      const existingUserIds = sockets
+        .map((s) => s.handshake.auth.userId)
+        .filter((id) => id && id !== userId);
+
+      // Envoyer la liste de présence uniquement à l'utilisateur qui vient de rejoindre
+      socket.emit('channel_users', { users: existingUserIds });
+
+      // Notifier le salon de cette nouvelle présence avec le pseudo
       socket.to(channelId).emit('user_joined', { userId });
     } catch (error) {
       console.error('Erreur join_channel:', error);
+    }
+  });
+
+  // Mettre à jour le pseudo à la volée
+  socket.on('update_username', async (newUsername: string) => {
+    try {
+      const trimmed = newUsername.trim();
+      if (trimmed) {
+        socket.data.username = trimmed;
+        const sessionKey = `${SESSION_PREFIX}${userId}`;
+        await redisClient.hset(sessionKey, 'username', trimmed);
+        console.log(`👤 User ${userId} a mis à jour son pseudo : ${trimmed}`);
+      }
+    } catch (error) {
+      console.error('Erreur update_username:', error);
     }
   });
 
@@ -57,10 +86,13 @@ export function registerWalkieTalkieHandlers(io: Server, socket: Socket) {
       // Mise à jour de l'état local du user
       await redisClient.hset(sessionKey, 'isTalking', 'true');
 
-      // Broadcaster l'info à tout le salon (y compris l'émetteur pour ui-feedback)
-      io.to(channelId).emit('user_started_talking', { userId });
+      // Broadcaster l'info à tout le salon (y compris l'émetteur pour ui-feedback) avec le pseudo
+      io.to(channelId).emit('user_started_talking', { 
+        userId, 
+        username: socket.data.username || userId 
+      });
       
-      console.log(`🎤 User ${userId} a pris la parole sur ${channelId}`);
+      console.log(`🎤 User ${userId} (${socket.data.username}) a pris la parole sur ${channelId}`);
     } catch (error) {
       console.error('Erreur start_talking:', error);
     }
@@ -69,16 +101,32 @@ export function registerWalkieTalkieHandlers(io: Server, socket: Socket) {
   // ==========================================
   // 3. FLUX AUDIO (Streaming binaire)
   // ==========================================
-  // Note de conception : Les chunks audio sont transférés tels quels.
-  // Interroger Redis à chaque chunk (plusieurs fois par sec) surchargerait inutilement le serveur.
-  // La permission a déjà été validée dans start_talking, et les clients UI bloquent les envois des autres.
+  // Note de conception : Les chunks audio doivent être rediffusés instantanément et
+  // de manière purement synchrone pour préserver un ordre strict et éviter tout
+  // décalage ou effet de saccade métallique causé par les appels asynchrones à Redis.
   socket.on('audio_stream', (data: { channelId: string; chunk: Buffer | ArrayBuffer }) => {
-    // Rediffusion instantanée à tous les membres de la room (sauf l'émetteur)
-    // Le transport en binaire natif via Socket.io est très performant.
+    // Rediffusion instantanée et synchrone (sauf émetteur) pour garantir l'ordre et le temps réel
     socket.to(data.channelId).emit('audio_receive', {
       userId,
       chunk: data.chunk
     });
+
+    // Renouvellement asynchrone en arrière-plan sans bloquer le flux d'émission principal
+    const now = Date.now();
+    const lastRenewal = socket.data.lastLockRenewal || 0;
+    if (now - lastRenewal > 4000) {
+      socket.data.lastLockRenewal = now;
+      const lockKey = `${CHANNEL_LOCK_PREFIX}${data.channelId}`;
+      redisClient.get(lockKey)
+        .then((currentSpeaker) => {
+          if (currentSpeaker === userId) {
+            return redisClient.expire(lockKey, 10);
+          }
+        })
+        .catch((error) => {
+          console.error('Erreur renouvellement verrou audio_stream:', error);
+        });
+    }
   });
 
   // ==========================================

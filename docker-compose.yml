@@ -1,0 +1,42 @@
+services:
+  # L'API Backend (construite avec le Dockerfile de production)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:10000" # Mappe le port 10000 du conteneur vers le port 3000 de votre machine locale
+    environment:
+      # L'URL doit pointer vers le nom du service "postgres" au lieu de "localhost"
+      - DATABASE_URL=postgresql://utilisateur:motdepasse@postgres:5432/walkietalkie?schema=public
+      # L'URL doit pointer vers le nom du service "redis"
+      - REDIS_URL=redis://redis:6379
+      - PORT=10000
+    depends_on:
+      - postgres
+      - redis
+
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      - POSTGRES_USER=utilisateur
+      - POSTGRES_PASSWORD=motdepasse
+      - POSTGRES_DB=walkietalkie
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  # Serveur Redis en cache (RAM)
+  redis:
+    image: redis:8.8-m03-alpine
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  # Permet de persister les données même si les conteneurs sont détruits
+  postgres_data:
+  redis_data:
